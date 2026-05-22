@@ -193,10 +193,24 @@ function App() {
         const ws = wsRef.current
         
         const updatedUserValue = users.find((u) => getUserId(u) === userId);
-        console.log("current User:- ", users);
+        console.log("current User:- ", edited);
         console.log("Updated User:- ", updatedUserValue);
-        
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'user_updated', ...edited, id: userId }))
+        const messageUserChances = (()=>{
+          let tempMessage ='';
+          if(updatedUserValue){
+            if(updatedUserValue.name !== edited.name){
+              tempMessage += `Name changed from ${updatedUserValue.name} to ${edited.name}. `
+            }
+            if(updatedUserValue.email !== edited.email){
+              tempMessage += `Email changed from ${updatedUserValue.email} to ${edited.email}. `
+            }
+            if(updatedUserValue.role !== edited.role){
+              tempMessage += `Role changed from ${updatedUserValue.role} to ${edited.role}. `
+            }
+            return tempMessage;
+          }
+        })
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'user_updated', ...edited, id: userId , message: messageUserChances() }))
       } catch (err) {
         console.warn('WS send failed', err)
       }
@@ -271,7 +285,7 @@ function App() {
             const incomingId = incoming.id ?? incoming._id
             if (!incomingId) return
             setUsers((prev) => prev.map((u) => (getUserId(u) === incomingId ? { ...u, ...incoming } : u)))
-          setEditedUsers((prev) => ({ ...prev, [incomingId]: { name: incoming.name, email: incoming.email, role: incoming.role , id: incomingId } }))
+            setEditedUsers((prev) => ({ ...prev, [incomingId]: { name: incoming.name, email: incoming.email, role: incoming.role , id: incomingId } }))
             setNotification(`User ${incoming.name} updated`)
             setTimeout(() => setNotification(''), 3000)
           }
