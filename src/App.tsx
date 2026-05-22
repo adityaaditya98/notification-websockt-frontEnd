@@ -94,6 +94,9 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [editedUsers, setEditedUsers] = useState<Record<string, { name: string; email: string; role: string , id: string }>>({})
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [userNotifications, setUserNotifications] = useState<string[]>([])
+  const [showNotifications, setShowNotifications] = useState(false)
   const [notification, setNotification] = useState('')
   const wsRef = useRef<WebSocket | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -210,7 +213,7 @@ function App() {
             return tempMessage;
           }
         })
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'user_updated', ...edited, id: userId , message: messageUserChances() }))
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'user_updated', user: { ...edited, id: userId }, message: messageUserChances() }))
       } catch (err) {
         console.warn('WS send failed', err)
       }
@@ -263,7 +266,7 @@ function App() {
 
   // WebSocket setup: connect only while admin view is active. adds reconnect/cleanup safety.
   useEffect(() => {
-    if (view !== 'admin') return
+    if (view !== 'admin' && view !== 'welcome') return
 
     let mounted = true
     const url = 'ws://localhost:8080'
@@ -284,10 +287,25 @@ function App() {
             const incoming = msg.user as User & { id?: string }
             const incomingId = incoming.id ?? incoming._id
             if (!incomingId) return
-            setUsers((prev) => prev.map((u) => (getUserId(u) === incomingId ? { ...u, ...incoming } : u)))
-            setEditedUsers((prev) => ({ ...prev, [incomingId]: { name: incoming.name, email: incoming.email, role: incoming.role , id: incomingId } }))
-            setNotification(`User ${incoming.name} updated`)
-            setTimeout(() => setNotification(''), 3000)
+            
+            if (view === 'admin') {
+              setUsers((prev) => prev.map((u) => (getUserId(u) === incomingId ? { ...u, ...incoming } : u)))
+              setEditedUsers((prev) => ({ ...prev, [incomingId]: { name: incoming.name, email: incoming.email, role: incoming.role , id: incomingId } }))
+              setNotification(`User ${incoming.name} updated`)
+              setTimeout(() => setNotification(''), 3000)
+            } else if (view === 'welcome') {
+              console.log("For checking incoming:-",msg);
+              setUser((prev) => {
+                if (prev && getUserId(prev) === incomingId) {
+                  setUnreadCount((c) => c + 1)
+                  const notifMsg = msg.message || 'Your profile was updated by an admin.'
+                  console.log('New notification for user:', notifMsg);
+                  setUserNotifications((notifs) => [notifMsg, ...notifs])
+                  return { ...prev, ...incoming }
+                }
+                return prev
+              })
+            }
           }
         } catch (err) {
           console.warn('Failed to parse WS message', err)
@@ -363,9 +381,40 @@ function App() {
 
         {view === 'welcome' ? (
           <div className="welcome-panel">
-            <p className="welcome-message">Welcome, {user?.name ?? 'Guest'}!</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <p className="welcome-message" style={{ margin: 0 }}>Welcome, {user?.name ?? 'Guest'}!</p>
+              <div style={{ position: 'relative' }}>
+                <div 
+                  className="bell-icon" 
+                  style={{ cursor: 'pointer', fontSize: '1.5rem' }} 
+                  onClick={() => { setShowNotifications(!showNotifications); setUnreadCount(0); }}
+                  title="Notifications"
+                >
+                  🔔
+                  {unreadCount > 0 && (
+                    <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: 'red', color: 'white', borderRadius: '50%', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', lineHeight: 1 }}>
+                      {unreadCount}
+                    </span>
+                  )}
+                </div>
+                {showNotifications && (
+                  <div style={{ position: 'absolute', right: 0, top: '100%', background: 'white', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', width: '280px', zIndex: 10, maxHeight: '300px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', textAlign: 'left' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', borderBottom: '1px solid #eee', paddingBottom: '8px', color: '#102a43' }}>Notifications</h4>
+                    {userNotifications.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: '0.9rem', color: '#475569' }}>No new notifications.</p>
+                    ) : (
+                      <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                        {userNotifications.map((notif, idx) => (
+                          <li key={idx} style={{ padding: '8px 0', borderBottom: '1px solid #eee', fontSize: '0.85rem', color: '#334155', lineHeight: 1.4 }}>{notif}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <p className="welcome-text">You are now signed in. Use the button below to return to the login page.</p>
-            <button type="button" className="primary-button" onClick={() => { setUser(null); setAuthToken(''); localStorage.removeItem(TOKEN_STORAGE_KEY); handleSwitch('login') }}>Sign out</button>
+            <button type="button" className="primary-button" onClick={() => { setUser(null); setAuthToken(''); localStorage.removeItem(TOKEN_STORAGE_KEY); setUnreadCount(0); setUserNotifications([]); setShowNotifications(false); handleSwitch('login') }}>Sign out</button>
           </div>
         ) : view === 'admin' ? (
           <AdminPanel users={users} editedUsers={editedUsers} setEditedUsers={setEditedUsers} handleSave={handleSave} savingUserId={savingUserId} onSignOut={() => { setUser(null); setAuthToken(''); localStorage.removeItem(TOKEN_STORAGE_KEY); handleSwitch('login') }} notification={notification} />
