@@ -104,6 +104,14 @@ function App() {
   const [savingUserId, setSavingUserId] = useState('')
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? '')
 
+  const savingUsersRef = useRef<Set<string>>(new Set())
+  // Ref to hold the latest user state without causing WebSocket reconnects
+  const currentUserRef = useRef<User | null>(null)
+  const lastNotifRef = useRef<{ msg: string; time: number } | null>(null)
+  useEffect(() => {
+    currentUserRef.current = user
+  }, [user])
+
   useEffect(() => {
     if (view === 'login') {
       setMessage('Welcome back! Enter your credentials to sign in.')
@@ -185,6 +193,10 @@ function App() {
       return
     }
 
+    // Prevent overlapping saves synchronously using a ref
+    if (savingUsersRef.current.has(userId)) return;
+    savingUsersRef.current.add(userId);
+
     setSavingUserId(userId)
     try {
       console.log(`Saving user ${userId} with data`, edited)
@@ -223,6 +235,7 @@ function App() {
       const axiosError = err as AxiosError<{ message?: string }>
       notify(axiosError.response?.data?.message ?? 'User update failed')
     } finally {
+      savingUsersRef.current.delete(userId)
       setSavingUserId('')
     }
   }
@@ -294,17 +307,21 @@ function App() {
               setNotification(`User ${incoming.name} updated`)
               setTimeout(() => setNotification(''), 3000)
             } else if (view === 'welcome') {
-              console.log("For checking incoming:-",msg);
-              setUser((prev) => {
-                if (prev && getUserId(prev) === incomingId) {
+              console.log("For checking incoming:-", msg);
+              const currentUser = currentUserRef.current;
+              if (currentUser && getUserId(currentUser) === incomingId) {
+                const notifMsg = msg.message || 'Your profile was updated by an admin.'
+                const now = Date.now();
+                const last = lastNotifRef.current;
+                // Strictly deduplicate identical consecutive messages regardless of time
+                if (!last || last.msg !== notifMsg) {
+                  lastNotifRef.current = { msg: notifMsg, time: now };
                   setUnreadCount((c) => c + 1)
-                  const notifMsg = msg.message || 'Your profile was updated by an admin.'
                   console.log('New notification for user:', notifMsg);
                   setUserNotifications((notifs) => [notifMsg, ...notifs])
-                  return { ...prev, ...incoming }
+                  setUser((prev) => prev ? { ...prev, ...incoming } : prev)
                 }
-                return prev
-              })
+              }
             }
           }
         } catch (err) {
